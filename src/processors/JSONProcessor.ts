@@ -1,5 +1,4 @@
-const XLSX = require('xlsx');
-
+import XLSX from "xlsx";
 import path from "path";
 import { Context } from "telegraf";
 import {
