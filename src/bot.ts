@@ -1,14 +1,23 @@
 import { Telegraf } from "telegraf";
 import dotenv from "dotenv";
+import { BotContext } from "./types/index.js";
+import errorHandler from "./handlers/errorHandler.js";
+import messageHandler from "./handlers/messageHandler.js";
+import { message } from "telegraf/filters";
 
 dotenv.config();
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
-  throw new Error("❌ TELEGRAM_BOT_TOKEN is not set in .env");
+	throw new Error("❌ TELEGRAM_BOT_TOKEN is not set in .env");
 }
 
-export const bot = new Telegraf(token);
+export const bot = new Telegraf<BotContext>(token);
 
-bot.start((ctx) => ctx.reply("Привет 👋 Я твой бот на Render!"));
-bot.help((ctx) => ctx.reply("Я понимаю команды /start и /help."));
+bot.start(messageHandler.handleStart);
+bot.help(messageHandler.handleHelp);
+bot.on(message("text"), () => {
+	messageHandler.handleText;
+});
+
+bot.catch(errorHandler.handleBotError);
