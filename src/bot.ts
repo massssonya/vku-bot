@@ -17,10 +17,11 @@ export const bot = new Telegraf(token);
 
 bot.start(messageHandler.handleStart);
 bot.help(messageHandler.handleHelp);
-bot.on(message("text"), messageHandler.handleText);
+bot.on("message", messageHandler.handleText);
 
-bot.on(message("document"), (ctx) => {
-	documentHandler.handleDocument(ctx as DocumentContext);
+bot.on("message", (ctx) => {
+	if ("document" in ctx.message)
+		documentHandler.handleDocument(ctx as DocumentContext);
 });
 
 bot.catch(errorHandler.handleBotError);
