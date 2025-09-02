@@ -1,7 +1,7 @@
-import { BotContext } from "../types/index.js";
+import { Context } from "telegraf";
 
 class MessageHandler {
-	async handleStart(ctx: BotContext): Promise<void> {
+	async handleStart(ctx: Context): Promise<void> {
 		const welcomeMessage = `
 🤖 Добро пожаловать в VKU Analyzer Bot!
 
@@ -26,7 +26,7 @@ class MessageHandler {
 		await ctx.reply(welcomeMessage);
 	}
 
-	async handleHelp(ctx: BotContext): Promise<void> {
+	async handleHelp(ctx: Context): Promise<void> {
 		const helpMessage = `
 📖 Справка по использованию бота:
 
@@ -48,7 +48,7 @@ class MessageHandler {
 		await ctx.reply(helpMessage);
 	}
 
-	async handleText(ctx: BotContext): Promise<void> {
+	async handleText(ctx: Context): Promise<void> {
 		await ctx.reply("📄 Пожалуйста, отправьте JSON файл для анализа");
 	}
 }

@@ -1,4 +1,5 @@
-import { Context } from 'telegraf';
+import { Context, NarrowedContext } from 'telegraf';
+import { Message, Update } from 'telegraf/types';
 
 export interface Screen {
   id: string;
@@ -31,9 +32,17 @@ export interface Diagnostic {
   out_degree: number;
 }
 
-export interface BotContext extends Context {
-  // Дополнительные свойства контекста, если нужны
+export interface DocumentMessage extends Message.DocumentMessage {
+  document: {
+    file_id: string;
+    file_unique_id: string;
+    file_name?: string;
+    mime_type?: string;
+    file_size?: number;
+  };
 }
+
+export type DocumentContext = NarrowedContext<Context<Update>, Update.MessageUpdate<DocumentMessage>>;
 
 export interface ReportFiles {
   diagnostics: string;
