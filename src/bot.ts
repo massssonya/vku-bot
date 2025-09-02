@@ -3,7 +3,6 @@ import dotenv from "dotenv";
 import { DocumentContext } from "./types/index.js";
 import errorHandler from "./handlers/errorHandler.js";
 import messageHandler from "./handlers/messageHandler.js";
-import { message } from "telegraf/filters";
 import documentHandler from "./handlers/documentHandler.js";
 
 dotenv.config();
