@@ -1,5 +1,5 @@
 import express from "express";
-import { bot } from "./bot";
+import { bot } from "./bot.js";
 import dotenv from "dotenv";
 
 dotenv.config();
