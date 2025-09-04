@@ -1,29 +1,39 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
-const TEMP_DIR = './temp';
+const TEMP_DIR_PREFIX = 'tgjson-';
 
-export function createTempDir(): string {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tgjson-'));
+function createTempDir() {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), TEMP_DIR_PREFIX));
   console.log(`📁 Создана временная директория: ${tempDir}`);
   return tempDir;
 }
 
-export function cleanupTempFiles(): void {
+function cleanupTempFiles() {
+  console.log('🧹 Запускаю очистку временных файлов...');
+  const tempDir = os.tmpdir();
   try {
-    if (fs.existsSync(TEMP_DIR)) {
-      fs.rmSync(TEMP_DIR, { recursive: true, force: true });
-      console.log('🧹 Временные файлы очищены');
-    }
+    const files = fs.readdirSync(tempDir);
+    files.forEach((file: string) => {
+      if (file.startsWith(TEMP_DIR_PREFIX)) {
+        const dirPath = path.join(tempDir, file);
+        try {
+          fs.rmSync(dirPath, { recursive: true, force: true });
+          console.log(`🗑️  Удалена директория: ${dirPath}`);
+        } catch (e) {
+          console.error(`❌ Не удалось удалить директорию ${dirPath}:`, e);
+        }
+      }
+    });
+    console.log('✅ Очистка завершена.');
+
   } catch (error) {
-    console.error('❌ Ошибка очистки временных файлов:', error);
+    console.error('❌ Ошибка при чтении временной директории:', error);
   }
 }
 
-export function ensureTempDir(): string {
-  if (!fs.existsSync(TEMP_DIR)) {
-    fs.mkdirSync(TEMP_DIR, { recursive: true });
-  }
-  return TEMP_DIR;
-}
+module.exports = {
+  createTempDir,
+  cleanupTempFiles,
+};

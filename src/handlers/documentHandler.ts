@@ -1,6 +1,5 @@
-
-import JSONProcessor from "../processors/JSONProcessor.js";
 import { DocumentContext } from "../types/index.js";
+const JSONProcessor = require("../processors/JSONProcessor.js");
 
 class DocumentHandler {
 	async handleDocument(ctx: DocumentContext): Promise<void> {
@@ -35,4 +34,4 @@ class DocumentHandler {
 	}
 }
 
-export default new DocumentHandler();
+module.exports = new DocumentHandler();

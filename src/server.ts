@@ -1,9 +1,9 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import { bot } from "./bot.js";
-import dotenv from "dotenv";
-import { cleanupTempFiles } from "./utils/tempUtils.js";
-
-dotenv.config();
+const { cleanupTempFiles } = require("./utils/tempUtils.js");
 
 const app = express();
 app.use(express.json());

@@ -1,8 +1,8 @@
-import { Context } from "telegraf";
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 class MessageHandler {
-	async handleStart(ctx: Context): Promise<void> {
-		const welcomeMessage = `
+    async handleStart(ctx) {
+        const welcomeMessage = `
 🤖 Добро пожаловать в VKU Analyzer Bot!
 
 📊 Я анализирую JSON файлы со структурой экранов и правил навигации.
@@ -22,12 +22,10 @@ class MessageHandler {
 
 ❓ Для справки используйте /help
     `;
-
-		await ctx.reply(welcomeMessage);
-	}
-
-	async handleHelp(ctx: Context): Promise<void> {
-		const helpMessage = `
+        await ctx.reply(welcomeMessage);
+    }
+    async handleHelp(ctx) {
+        const helpMessage = `
 📖 Справка по использованию бота:
 
 1. 📤 Отправьте JSON файл с структурой экранов
@@ -44,13 +42,10 @@ class MessageHandler {
 • Максимальное количество анализируемых путей: 10,000
 • Поддерживаются стандартные структуры JSON
     `;
-
-		await ctx.reply(helpMessage);
-	}
-
-	async handleText(ctx: Context): Promise<void> {
-		await ctx.reply("📄 Пожалуйста, отправьте JSON файл для анализа");
-	}
+        await ctx.reply(helpMessage);
+    }
+    async handleText(ctx) {
+        await ctx.reply("📄 Пожалуйста, отправьте JSON файл для анализа");
+    }
 }
-
 module.exports = new MessageHandler();

@@ -12,4 +12,4 @@ class ErrorHandler {
 	}
 }
 
-export default new ErrorHandler();
+module.exports = new ErrorHandler();

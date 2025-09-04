@@ -8,9 +8,9 @@ import {
 	ReportFiles,
 	Screen
 } from "../types/index.js";
-import { cleanupTempFiles, createTempDir } from "../utils/tempUtils.js";
+const { cleanupTempFiles, createTempDir } = require("../utils/tempUtils.js");
 
-export class JSONProcessor {
+class JSONProcessor {
 	private screens: Record<string, Screen> = {};
 	private edges: Record<string, (string | null)[]> = {};
 	private paths: PathResult[] = [];
@@ -283,4 +283,4 @@ export class JSONProcessor {
 	}
 }
 
-export default new JSONProcessor();
+module.exports = new JSONProcessor();
