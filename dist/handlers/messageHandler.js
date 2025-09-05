@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.messageHandler = void 0;
 class MessageHandler {
     async handleStart(ctx) {
         const welcomeMessage = `
@@ -48,4 +49,4 @@ class MessageHandler {
         await ctx.reply("📄 Пожалуйста, отправьте JSON файл для анализа");
     }
 }
-module.exports = new MessageHandler();
+exports.messageHandler = new MessageHandler();

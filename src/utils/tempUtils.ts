@@ -1,16 +1,16 @@
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 const TEMP_DIR_PREFIX = 'tgjson-';
 
-function createTempDir() {
+export function createTempDir() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), TEMP_DIR_PREFIX));
   console.log(`📁 Создана временная директория: ${tempDir}`);
   return tempDir;
 }
 
-function cleanupTempFiles() {
+export function cleanupTempFiles() {
   console.log('🧹 Запускаю очистку временных файлов...');
   const tempDir = os.tmpdir();
   try {
@@ -33,7 +33,7 @@ function cleanupTempFiles() {
   }
 }
 
-module.exports = {
-  createTempDir,
-  cleanupTempFiles,
-};
+// module.exports = {
+//   createTempDir,
+//   cleanupTempFiles,
+// };

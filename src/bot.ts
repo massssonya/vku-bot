@@ -1,8 +1,9 @@
 import { Telegraf } from 'telegraf';
-import { message } from 'telegraf/filters';
-const documentHandler = require("./handlers/documentHandler.js");
-const messageHandler = require("./handlers/messageHandler.js");
-const errorHandler = require("./handlers/errorHandler.js");
+import { message } from 'telegraf/filters'
+import { documentHandler } from './handlers/documentHandler';
+import { errorHandler } from './handlers/errorHandler';
+import { messageHandler } from './handlers/messageHandler';
+
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || '');
 
@@ -10,11 +11,9 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || '');
 bot.start(messageHandler.handleStart);
 bot.help(messageHandler.handleHelp);
 
-// Обработчик документов
-bot.on(message('document'), documentHandler.handleDocument);
 
-// Обработчик текстовых сообщений
-bot.on(message('text'), messageHandler.handleText);
+bot.on(message('document'), (ctx) => documentHandler.handleDocument(ctx));
+bot.on(message('text'), (ctx) => messageHandler.handleText(ctx));
 
 // Обработчик ошибок
 bot.catch(errorHandler.handleBotError);

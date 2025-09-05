@@ -7,7 +7,7 @@ const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const express_1 = __importDefault(require("express"));
 const bot_js_1 = require("./bot.js");
-const { cleanupTempFiles } = require("./utils/tempUtils.js");
+const tempUtils_js_1 = require("./utils/tempUtils.js");
 const app = (0, express_1.default)();
 app.use(express_1.default.json());
 app.get("/", (_, res) => res.send("✅ Бот работает через Render Webhook"));
@@ -28,7 +28,7 @@ app.listen(PORT, async () => {
         await bot_js_1.bot.launch().then(() => {
             console.log("🤖 Бот запущен!");
             // Очистка временных файлов при запуске
-            cleanupTempFiles();
+            (0, tempUtils_js_1.cleanupTempFiles)();
         });
         console.log("🤖 Бот запущен в режиме polling (локально)");
     }

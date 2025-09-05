@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.errorHandler = void 0;
 class ErrorHandler {
     handleBotError(error, ctx) {
         console.error("❌ Ошибка бота:", error);
@@ -8,4 +9,4 @@ class ErrorHandler {
         }
     }
 }
-module.exports = new ErrorHandler();
+exports.errorHandler = new ErrorHandler();

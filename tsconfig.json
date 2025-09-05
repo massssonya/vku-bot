@@ -1,18 +1,17 @@
 {
 	"compilerOptions": {
-		"target": "ES2022",
-		"module": "CommonJS",
-		"moduleResolution": "node",
-		"outDir": "dist",
-		"esModuleInterop": true,
-		"strict": true,
-		"skipLibCheck": true,
-		"forceConsistentCasingInFileNames": true,
-		"allowSyntheticDefaultImports": true
+	  "target": "ES2022",
+	  "module": "CommonJS",
+	  "moduleResolution": "node",
+	  "outDir": "dist",
+	  "esModuleInterop": true,
+	  "resolveJsonModule": true,
+	  "strict": true,
+	  "skipLibCheck": true,
+	  "forceConsistentCasingInFileNames": true,
+	  "types": ["node"]   // 👈 добавь
 	},
 	"include": ["src/**/*"],
-	"exclude": [
-		"node_modules",
-		"dist"
-	]
-}
+	"exclude": ["node_modules", "dist"]
+  }
+  

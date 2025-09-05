@@ -7,11 +7,11 @@ import {
 	ReportFiles,
 	Screen
 } from "../types/index.js";
-const { cleanupTempFiles, createTempDir } = require("../utils/tempUtils.js");
+import { cleanupTempFiles, createTempDir } from "../utils/tempUtils.js";
 
-var XLSX = require("xlsx");
+import XLSX from "xlsx";
 
-class JSONProcessor {
+export class JSONProcessor {
 	private screens: Record<string, Screen> = {};
 	private edges: Record<string, (string | null)[]> = {};
 	private paths: PathResult[] = [];
@@ -283,4 +283,4 @@ class JSONProcessor {
 	}
 }
 
-module.exports = new JSONProcessor();
+export const JSONProcessorObj = new JSONProcessor()

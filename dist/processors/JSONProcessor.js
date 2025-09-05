@@ -1,44 +1,12 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const XLSX = __importStar(require("xlsx"));
+exports.JSONProcessorObj = exports.JSONProcessor = void 0;
 const path_1 = __importDefault(require("path"));
-const { cleanupTempFiles, createTempDir } = require("../utils/tempUtils.js");
+const tempUtils_js_1 = require("../utils/tempUtils.js");
+const xlsx_1 = __importDefault(require("xlsx"));
 class JSONProcessor {
     screens = {};
     edges = {};
@@ -64,7 +32,7 @@ class JSONProcessor {
             }
             const unreachable = this.findUnreachableScreens();
             // Генерация отчетов
-            const tempDir = createTempDir();
+            const tempDir = (0, tempUtils_js_1.createTempDir)();
             const files = this.generateReports(tempDir, diagnostics, unreachable);
             await ctx.reply("✅ Анализ завершён. Формирую отчеты...");
             // Отправка файлов пользователю
@@ -75,7 +43,7 @@ class JSONProcessor {
                 });
             }
             // Очистка временных файлов
-            setTimeout(() => cleanupTempFiles(), 30000);
+            setTimeout(() => (0, tempUtils_js_1.cleanupTempFiles)(), 30000);
         }
         catch (err) {
             console.error("❌ Ошибка обработки JSON:", err);
@@ -194,7 +162,7 @@ class JSONProcessor {
         const files = {};
         try {
             // Диагностика экранов
-            const ws1 = XLSX.utils.json_to_sheet(diagnostics.map((d) => ({
+            const ws1 = xlsx_1.default.utils.json_to_sheet(diagnostics.map((d) => ({
                 "ID экрана": d.screen,
                 Название: d.name || "Нет названия",
                 Терминальный: d.terminal ? "Да" : "Нет",
@@ -202,10 +170,10 @@ class JSONProcessor {
                 "Исходящие связи": d.out_degree,
                 "Всего правил": this.edges[d.screen]?.length || 0
             })));
-            const wb1 = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb1, ws1, "Диагностика");
+            const wb1 = xlsx_1.default.utils.book_new();
+            xlsx_1.default.utils.book_append_sheet(wb1, ws1, "Диагностика");
             files.diagnostics = path_1.default.join(dir, "diagnostics.xlsx");
-            XLSX.writeFile(wb1, files.diagnostics);
+            xlsx_1.default.writeFile(wb1, files.diagnostics);
             // Пути
             const pathData = this.paths.map((p, index) => ({
                 "№": index + 1,
@@ -218,22 +186,22 @@ class JSONProcessor {
                 Путь: p.path.join(" → "),
                 Экраны: p.path.length
             }));
-            const ws2 = XLSX.utils.json_to_sheet(pathData);
-            const wb2 = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb2, ws2, "Пути");
+            const ws2 = xlsx_1.default.utils.json_to_sheet(pathData);
+            const wb2 = xlsx_1.default.utils.book_new();
+            xlsx_1.default.utils.book_append_sheet(wb2, ws2, "Пути");
             files.paths = path_1.default.join(dir, "paths.xlsx");
-            XLSX.writeFile(wb2, files.paths);
+            xlsx_1.default.writeFile(wb2, files.paths);
             // Недостижимые экраны
             if (unreachable.length > 0) {
-                const ws3 = XLSX.utils.json_to_sheet(unreachable.map((u) => ({
+                const ws3 = xlsx_1.default.utils.json_to_sheet(unreachable.map((u) => ({
                     "ID экрана": u.screen,
                     Название: u.name || "Нет названия",
                     Тип: this.screens[u.screen]?.isTerminal ? "Терминальный" : "Обычный"
                 })));
-                const wb3 = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb3, ws3, "Недостижимые");
+                const wb3 = xlsx_1.default.utils.book_new();
+                xlsx_1.default.utils.book_append_sheet(wb3, ws3, "Недостижимые");
                 files.unreachable = path_1.default.join(dir, "unreachable.xlsx");
-                XLSX.writeFile(wb3, files.unreachable);
+                xlsx_1.default.writeFile(wb3, files.unreachable);
             }
             // Сводный отчет
             const summaryData = [
@@ -246,11 +214,11 @@ class JSONProcessor {
                     "Терминальные экраны": this.paths.filter((p) => p.status === "TERMINAL").length
                 }
             ];
-            const ws4 = XLSX.utils.json_to_sheet(summaryData);
-            const wb4 = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb4, ws4, "Сводка");
+            const ws4 = xlsx_1.default.utils.json_to_sheet(summaryData);
+            const wb4 = xlsx_1.default.utils.book_new();
+            xlsx_1.default.utils.book_append_sheet(wb4, ws4, "Сводка");
             files.summary = path_1.default.join(dir, "summary.xlsx");
-            XLSX.writeFile(wb4, files.summary);
+            xlsx_1.default.writeFile(wb4, files.summary);
         }
         catch (error) {
             console.error("❌ Ошибка генерации отчетов:", error);
@@ -259,4 +227,5 @@ class JSONProcessor {
         return files;
     }
 }
-module.exports = new JSONProcessor();
+exports.JSONProcessor = JSONProcessor;
+exports.JSONProcessorObj = new JSONProcessor();

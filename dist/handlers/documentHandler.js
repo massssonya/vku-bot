@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const JSONProcessor = require("../processors/JSONProcessor.js");
+exports.documentHandler = exports.DocumentHandler = void 0;
+const JSONProcessor_js_1 = require("../processors/JSONProcessor.js");
 class DocumentHandler {
     async handleDocument(ctx) {
         try {
@@ -17,7 +18,7 @@ class DocumentHandler {
                 return;
             }
             // Обработка JSON файла
-            await JSONProcessor.processJSON(ctx, file.file_id);
+            await JSONProcessor_js_1.JSONProcessorObj.processJSON(ctx, file.file_id);
         }
         catch (error) {
             console.error("❌ Ошибка обработки документа:", error);
@@ -25,4 +26,5 @@ class DocumentHandler {
         }
     }
 }
-module.exports = new DocumentHandler();
+exports.DocumentHandler = DocumentHandler;
+exports.documentHandler = new DocumentHandler();

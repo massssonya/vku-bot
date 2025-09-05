@@ -53,4 +53,4 @@ class MessageHandler {
 	}
 }
 
-module.exports = new MessageHandler();
+export const messageHandler = new MessageHandler()

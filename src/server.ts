@@ -3,7 +3,7 @@ dotenv.config();
 
 import express from "express";
 import { bot } from "./bot.js";
-const { cleanupTempFiles } = require("./utils/tempUtils.js");
+import { cleanupTempFiles } from "./utils/tempUtils.js";
 
 const app = express();
 app.use(express.json());
