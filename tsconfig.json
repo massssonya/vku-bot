@@ -9,7 +9,7 @@
 	  "strict": true,
 	  "skipLibCheck": true,
 	  "forceConsistentCasingInFileNames": true,
-	  "types": ["node"]   // 👈 добавь
+	  "types": ["node"] 
 	},
 	"include": ["src/**/*"],
 	"exclude": ["node_modules", "dist"]
