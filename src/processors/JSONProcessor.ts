@@ -1,4 +1,3 @@
-import * as XLSX from "xlsx";
 import path from "path";
 import { Context } from "telegraf";
 import {
@@ -9,6 +8,8 @@ import {
 	Screen
 } from "../types/index.js";
 const { cleanupTempFiles, createTempDir } = require("../utils/tempUtils.js");
+
+var XLSX = require("xlsx");
 
 class JSONProcessor {
 	private screens: Record<string, Screen> = {};
@@ -59,8 +60,7 @@ class JSONProcessor {
 		} catch (err) {
 			console.error("❌ Ошибка обработки JSON:", err);
 			throw new Error(
-				`Ошибка при обработке JSON: ${
-					err instanceof Error ? err.message : "Unknown error"
+				`Ошибка при обработке JSON: ${err instanceof Error ? err.message : "Unknown error"
 				}`
 			);
 		}
@@ -227,8 +227,8 @@ class JSONProcessor {
 					p.status === "CYCLE"
 						? "ЦИКЛ"
 						: p.status === "TERMINAL"
-						? "ТЕРМИНАЛ"
-						: "ТУПИК",
+							? "ТЕРМИНАЛ"
+							: "ТУПИК",
 				Путь: p.path.join(" → "),
 				Экраны: p.path.length
 			}));
