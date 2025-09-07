@@ -1,7 +1,6 @@
 import path from "path";
 import fs from "fs";
 import PDFDocument from "pdfkit";
-import { Context } from "telegraf";
 import {
 	Diagnostic,
 	JSONStructure,
@@ -9,10 +8,13 @@ import {
 	ReportFiles,
 	Screen
 } from "../types/index.js";
-import { cleanupTempDir, createTempDir } from "../utils/tempUtils.js";
+import { createTempDir } from "../utils/temp-utils.js";
 
 import XLSX from "xlsx";
-import { randomUUID } from "crypto";
+import { CustomContext } from "../types/telegraf.js";
+import SessionStorage from "../utils/session-storage.js";
+
+const FONTS_PATH = path.join(process.cwd(), 'assets', 'fonts');
 
 export class JSONProcessor {
 	private screens: Record<string, Screen> = {};
@@ -20,7 +22,7 @@ export class JSONProcessor {
 	private paths: PathResult[] = [];
 	private readonly MAX_PATHS = 10000;
 
-	async processJSON(ctx: Context, fileId: string): Promise<void> {
+	async processJSON(ctx: CustomContext, fileId: string): Promise<void> {
 		try {
 			await ctx.reply("📊 Получен JSON. Начинаю анализ...");
 
@@ -52,8 +54,12 @@ export class JSONProcessor {
 
 			// Генерация отчетов
 			const tempDir = createTempDir();
-			const sessionId = randomUUID();
-			(ctx as any).sessionData = { json, diagnostics, unreachable, tempDir, sessionId };
+			const sessionId = SessionStorage.create({
+				json,
+				diagnostics,
+				unreachable,
+				tempDir
+			});
 
 			await ctx.reply("📑 В каком формате сформировать отчёты?", {
 				reply_markup: {
@@ -76,7 +82,7 @@ export class JSONProcessor {
 			// }
 
 			// Очистка временных файлов
-			setTimeout(() => cleanupTempDir(tempDir), 30000);
+			// setTimeout(() => cleanupTempDir(tempDir), 30000);
 		} catch (err) {
 			console.error("❌ Ошибка обработки JSON:", err);
 			throw new Error(
@@ -472,49 +478,70 @@ export class JSONProcessor {
 	}
 
 	// ======================= Генерация PDF =======================
+
 	generatePDFReports(
 		dir: string,
 		diagnostics: Diagnostic[],
 		unreachable: Array<{ screen: string; name?: string }>
-	): ReportFiles {
-		const files: Partial<ReportFiles> = {};
-		const pdfPath = path.join(dir, "report.pdf");
+	): Promise<ReportFiles> {
+		return new Promise((resolve, reject) => {
+			const files: Partial<ReportFiles> = {};
+			const pdfPath = path.join(dir, "report.pdf");
 
-		const doc = new PDFDocument();
-		doc.pipe(fs.createWriteStream(pdfPath));
+			const doc = new PDFDocument();
+			const stream = fs.createWriteStream(pdfPath);
 
-		doc.fontSize(18).text("Диагностика экранов", { align: "center" });
-		doc.moveDown();
+			doc.pipe(stream);
 
-		doc.fontSize(14).text("Сводка", { underline: true });
-		doc.fontSize(12).list([
-			`Всего экранов: ${Object.keys(this.screens).length}`,
-			`Проанализировано путей: ${this.paths.length}`,
-			`Недостижимых экранов: ${unreachable.length}`,
-			`Экраны с циклами: ${this.paths.filter((p) => p.status === "CYCLE").length}`,
-			`Терминальные экраны: ${this.paths.filter((p) => p.status === "TERMINAL").length}`
-		]);
-		doc.moveDown();
+			doc.registerFont('regular', path.join(FONTS_PATH, 'Roboto-Regular.ttf'));
+			doc.registerFont('bold', path.join(FONTS_PATH, 'Roboto-Bold.ttf'));
 
-		if (unreachable.length > 0) {
-			doc.fontSize(14).text("Недостижимые экраны", { underline: true });
-			unreachable.forEach((u) => {
-				doc.fontSize(12).text(`• ${u.screen} (${u.name || "Нет названия"})`);
-			});
+			doc.font('regular');
+
+			doc.fontSize(18).font('bold').text("Диагностика экранов", { align: "center" });
 			doc.moveDown();
+
+			
+
+			doc.fontSize(14).font('bold').text("Сводка", { underline: true });
+			
+			doc.font('regular');
+			doc.fontSize(12).list([
+				`Всего экранов: ${Object.keys(this.screens).length}`,
+				`Проанализировано путей: ${this.paths.length}`,
+				`Недостижимых экранов: ${unreachable.length}`,
+				`Экраны с циклами: ${this.paths.filter((p) => p.status === "CYCLE").length}`,
+				`Терминальные экраны: ${this.paths.filter((p) => p.status === "TERMINAL").length}`
+			]);
+			doc.moveDown();
+
+			if (unreachable.length > 0) {
+				doc.fontSize(14).font('bold').text("Недостижимые экраны", { underline: true });
+				doc.font('regular');
+				unreachable.forEach((u) => {
+					doc.fontSize(12).text(`• ${u.screen} (${u.name || "Нет названия"})`);
+				});
+				doc.moveDown();
+			}
+
+			doc.fontSize(14).font('bold').text("Диагностика экранов", { underline: true });
+			doc.font('regular');
+			diagnostics.forEach((d) => {
+				doc.fontSize(10).text(
+					`ID: ${d.screen}, Название: ${d.name || "—"}, Терминальный: ${d.terminal ? "Да" : "Нет"}, Правила: ${d.has_rules ? "Да" : "Нет"}, Исходящие связи: ${d.out_degree}`
+				);
+			});
+
+			stream.on('finish', () => {
+				files.summary = pdfPath;
+				resolve(files as ReportFiles);
+			});
+
+			stream.on('error', reject);
+
+			doc.end();
 		}
-
-		doc.fontSize(14).text("Диагностика экранов", { underline: true });
-		diagnostics.forEach((d) => {
-			doc.fontSize(10).text(
-				`ID: ${d.screen}, Название: ${d.name || "—"}, Терминальный: ${d.terminal ? "Да" : "Нет"}, Правила: ${d.has_rules ? "Да" : "Нет"}, Исходящие связи: ${d.out_degree}`
-			);
-		});
-
-		doc.end();
-		files.summary = pdfPath;
-
-		return files as ReportFiles;
+		)
 	}
 }
 
