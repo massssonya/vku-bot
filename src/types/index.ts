@@ -49,4 +49,5 @@ export interface ReportFiles {
   paths: string;
   unreachable?: string;
   summary: string;
+  conflicts?: string;
 }

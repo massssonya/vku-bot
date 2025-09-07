@@ -41,9 +41,15 @@ export class JSONProcessor {
 
 			const unreachable = this.findUnreachableScreens();
 
+			// Проверка конфликтов условий
+			const conditionConflicts = this.checkDuplicateConditions(json);
+			if (conditionConflicts.length > 0) {
+				await ctx.reply(`⚠️ Найдены конфликты условий (${conditionConflicts.length})`);
+			}
+
 			// Генерация отчетов
 			const tempDir = createTempDir();
-			const files = this.generateReports(tempDir, diagnostics, unreachable);
+			const files = this.generateReports(tempDir, diagnostics, unreachable, json);
 
 			await ctx.reply("✅ Анализ завершён. Формирую отчеты...");
 
@@ -60,8 +66,7 @@ export class JSONProcessor {
 		} catch (err) {
 			console.error("❌ Ошибка обработки JSON:", err);
 			throw new Error(
-				`Ошибка при обработке JSON: ${err instanceof Error ? err.message : "Unknown error"
-				}`
+				`Ошибка при обработке JSON: ${err instanceof Error ? err.message : "Unknown error"}`
 			);
 		}
 	}
@@ -128,7 +133,7 @@ export class JSONProcessor {
 			if (scr.isFirstScreen) return id;
 		}
 
-		// Попробуем найти любой экран с входящими связями
+		// Попробуем найти любой экран без входящих связей
 		const allScreens = new Set(Object.keys(this.screens));
 		const hasIncoming = new Set<string>();
 
@@ -194,10 +199,60 @@ export class JSONProcessor {
 			}));
 	}
 
+	// 🔍 Проверка на конфликты условий
+	private checkDuplicateConditions(json: JSONStructure) {
+		const problems: Array<{
+			screenId: string;
+			condition: string;
+			nextDisplays: string[];
+		}> = [];
+
+		const checkRulesBlock = (rulesBlock: Record<string, any> | undefined) => {
+			if (!rulesBlock) return;
+
+			for (const [screenId, rules] of Object.entries(rulesBlock)) {
+				if (!Array.isArray(rules)) continue;
+
+				const conditionMap: Record<string, Set<string>> = {};
+
+				for (const rule of rules) {
+					const conds = JSON.stringify(rule.conditions ?? []);
+					const nexts = Array.isArray(rule.nextDisplay)
+						? rule.nextDisplay
+						: rule.nextDisplay
+							? [rule.nextDisplay]
+							: [];
+
+					if (!conditionMap[conds]) {
+						conditionMap[conds] = new Set();
+					}
+
+					nexts.forEach((n: string) => conditionMap[conds].add(n || "null"));
+				}
+
+				for (const [conds, nextSet] of Object.entries(conditionMap)) {
+					if (nextSet.size > 1) {
+						problems.push({
+							screenId,
+							condition: conds,
+							nextDisplays: Array.from(nextSet)
+						});
+					}
+				}
+			}
+		};
+
+		checkRulesBlock(json.screenRules);
+		checkRulesBlock(json.cycledScreenRules);
+
+		return problems;
+	}
+
 	private generateReports(
 		dir: string,
 		diagnostics: Diagnostic[],
-		unreachable: Array<{ screen: string; name?: string }>
+		unreachable: Array<{ screen: string; name?: string }>,
+		json: JSONStructure
 	): ReportFiles {
 		const files: Partial<ReportFiles> = {};
 
@@ -261,11 +316,8 @@ export class JSONProcessor {
 					"Всего экранов": Object.keys(this.screens).length,
 					"Проанализировано путей": this.paths.length,
 					"Недостижимых экранов": unreachable.length,
-					"Экраны с циклами": this.paths.filter((p) => p.status === "CYCLE")
-						.length,
-					"Терминальные экраны": this.paths.filter(
-						(p) => p.status === "TERMINAL"
-					).length
+					"Экраны с циклами": this.paths.filter((p) => p.status === "CYCLE").length,
+					"Терминальные экраны": this.paths.filter((p) => p.status === "TERMINAL").length
 				}
 			];
 
@@ -274,6 +326,24 @@ export class JSONProcessor {
 			XLSX.utils.book_append_sheet(wb4, ws4, "Сводка");
 			files.summary = path.join(dir, "summary.xlsx");
 			XLSX.writeFile(wb4, files.summary);
+
+			// Конфликты условий
+			const conditionConflicts = this.checkDuplicateConditions(json);
+			if (conditionConflicts.length > 0) {
+				const ws5 = XLSX.utils.json_to_sheet(
+					conditionConflicts.map((c) => ({
+						"ID экрана": c.screenId,
+						"Условия": c.condition,
+						"Переходы": c.nextDisplays.join(", ")
+					}))
+				);
+
+				const wb5 = XLSX.utils.book_new();
+				XLSX.utils.book_append_sheet(wb5, ws5, "Конфликты условий");
+				files.conflicts = path.join(dir, "conflicts.xlsx");
+				XLSX.writeFile(wb5, files.conflicts);
+			}
+
 		} catch (error) {
 			console.error("❌ Ошибка генерации отчетов:", error);
 			throw error;
@@ -283,4 +353,4 @@ export class JSONProcessor {
 	}
 }
 
-export const JSONProcessorObj = new JSONProcessor()
+export const JSONProcessorObj = new JSONProcessor();
