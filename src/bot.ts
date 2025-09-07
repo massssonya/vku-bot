@@ -18,7 +18,12 @@ bot.on(message('document'), (ctx) => documentHandler.handleDocument(ctx));
 bot.on(message('text'), (ctx) => messageHandler.handleText(ctx));
 
 bot.on("callback_query", async (ctx) => {
-    const data = ctx.callbackQuery.data || "";
+    if (!('data' in ctx.callbackQuery)) {
+        await ctx.answerCbQuery("⚠️ Неверный формат запроса");
+        return;
+    }
+
+    const data = ctx.callbackQuery.data;
     const sessionData = (ctx as any).sessionData;
 
     if (!sessionData) {
