@@ -7,7 +7,7 @@ import {
 	ReportFiles,
 	Screen
 } from "../types/index.js";
-import { cleanupTempFiles, createTempDir } from "../utils/tempUtils.js";
+import { cleanupTempDir, createTempDir } from "../utils/tempUtils.js";
 
 import XLSX from "xlsx";
 
@@ -62,7 +62,7 @@ export class JSONProcessor {
 			}
 
 			// Очистка временных файлов
-			setTimeout(() => cleanupTempFiles(), 30000);
+			setTimeout(() => cleanupTempDir(tempDir), 30000);
 		} catch (err) {
 			console.error("❌ Ошибка обработки JSON:", err);
 			throw new Error(

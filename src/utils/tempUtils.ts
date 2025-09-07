@@ -33,7 +33,11 @@ export function cleanupTempFiles() {
   }
 }
 
-// module.exports = {
-//   createTempDir,
-//   cleanupTempFiles,
-// };
+export function cleanupTempDir(tempDir: string) {
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    console.log(`🗑️ Удалена директория: ${tempDir}`);
+  } catch (e) {
+    console.error(`❌ Не удалось удалить директорию ${tempDir}:`, e);
+  }
+}
