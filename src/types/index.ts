@@ -50,4 +50,5 @@ export interface ReportFiles {
   unreachable?: string;
   summary: string;
   conflicts?: string;
+  contradictions?: string;
 }

@@ -248,6 +248,91 @@ export class JSONProcessor {
 		return problems;
 	}
 
+	private normalizeCondition(c: any): string {
+		if (c.protectedField) {
+			// Сложное условие
+			return JSON.stringify({
+				field: c.protectedField,
+				predicate: c.predicate,
+				value: c.value,
+				args: c.args
+			});
+		} else {
+			// Простое условие (всегда равенство)
+			return JSON.stringify({
+				field: c.field,
+				predicate: "equals",
+				value: c.value
+			});
+		}
+	}
+
+	private normalizeConditionsArray(conds: any[]): string[] {
+		return conds.map(c => this.normalizeCondition(c)).sort();
+	}
+
+	private isSubset(condsA: any[], condsB: any[]): boolean {
+		const normA = this.normalizeConditionsArray(condsA);
+		const normB = this.normalizeConditionsArray(condsB);
+		return normA.every(c => normB.includes(c));
+	}
+
+	private checkContradictoryConditions(json: JSONStructure) {
+		const problems: Array<{
+			screenId: string;
+			condsA: any[];
+			nextA: any;
+			condsB: any[];
+			nextB: any;
+			reason: string;
+		}> = [];
+
+		const checkRulesBlock = (rulesBlock: Record<string, any> | undefined) => {
+			if (!rulesBlock) return;
+
+			for (const [screenId, rules] of Object.entries(rulesBlock)) {
+				if (!Array.isArray(rules)) continue;
+
+				for (let i = 0; i < rules.length; i++) {
+					for (let j = i + 1; j < rules.length; j++) {
+						const r1 = rules[i];
+						const r2 = rules[j];
+
+						const conds1 = r1.conditions ?? [];
+						const conds2 = r2.conditions ?? [];
+
+						const norm1 = this.normalizeConditionsArray(conds1);
+						const norm2 = this.normalizeConditionsArray(conds2);
+
+						const sameConditions = JSON.stringify(norm1) === JSON.stringify(norm2);
+						const subset1 = this.isSubset(conds1, conds2);
+						const subset2 = this.isSubset(conds2, conds1);
+
+						if ((sameConditions || subset1 || subset2) &&
+							JSON.stringify(r1.nextDisplay) !== JSON.stringify(r2.nextDisplay)) {
+							problems.push({
+								screenId,
+								condsA: conds1,
+								nextA: r1.nextDisplay,
+								condsB: conds2,
+								nextB: r2.nextDisplay,
+								reason: sameConditions
+									? "Одинаковые условия ведут к разным экранам"
+									: "Вложенные условия ведут к разным экранам"
+							});
+						}
+					}
+				}
+			}
+		};
+
+		checkRulesBlock(json.screenRules);
+		checkRulesBlock(json.cycledScreenRules);
+
+		return problems;
+	}
+
+
 	private generateReports(
 		dir: string,
 		diagnostics: Diagnostic[],
@@ -342,6 +427,26 @@ export class JSONProcessor {
 				XLSX.utils.book_append_sheet(wb5, ws5, "Конфликты условий");
 				files.conflicts = path.join(dir, "conflicts.xlsx");
 				XLSX.writeFile(wb5, files.conflicts);
+			}
+
+			// Противоречивые условия
+			const contradictions = this.checkContradictoryConditions(json);
+			if (contradictions.length > 0) {
+				const ws6 = XLSX.utils.json_to_sheet(
+					contradictions.map((c) => ({
+						"ID экрана": c.screenId,
+						"Условия A": JSON.stringify(c.condsA),
+						"Переход A": JSON.stringify(c.nextA),
+						"Условия B": JSON.stringify(c.condsB),
+						"Переход B": JSON.stringify(c.nextB),
+						"Причина": c.reason
+					}))
+				);
+
+				const wb6 = XLSX.utils.book_new();
+				XLSX.utils.book_append_sheet(wb6, ws6, "Противоречия");
+				files.contradictions = path.join(dir, "contradictions.xlsx");
+				XLSX.writeFile(wb6, files.contradictions);
 			}
 
 		} catch (error) {
