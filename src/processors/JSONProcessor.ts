@@ -1,4 +1,6 @@
 import path from "path";
+import fs from "fs";
+import PDFDocument from "pdfkit";
 import { Context } from "telegraf";
 import {
 	Diagnostic,
@@ -10,6 +12,7 @@ import {
 import { cleanupTempDir, createTempDir } from "../utils/tempUtils.js";
 
 import XLSX from "xlsx";
+import { randomUUID } from "crypto";
 
 export class JSONProcessor {
 	private screens: Record<string, Screen> = {};
@@ -49,17 +52,28 @@ export class JSONProcessor {
 
 			// Генерация отчетов
 			const tempDir = createTempDir();
-			const files = this.generateReports(tempDir, diagnostics, unreachable, json);
+			const sessionId = randomUUID();
+			(ctx as any).sessionData = { json, diagnostics, unreachable, tempDir, sessionId };
 
-			await ctx.reply("✅ Анализ завершён. Формирую отчеты...");
+			await ctx.reply("📑 В каком формате сформировать отчёты?", {
+				reply_markup: {
+					inline_keyboard: [
+						[{ text: "📊 Excel", callback_data: `report_excel_${sessionId}` }],
+						[{ text: "📄 PDF", callback_data: `report_pdf_${sessionId}` }]
+					]
+				}
+			})
+			// const files = this.generateReports(tempDir, diagnostics, unreachable, json);
 
-			// Отправка файлов пользователю
-			for (const [type, filepath] of Object.entries(files)) {
-				await ctx.replyWithDocument({
-					source: filepath,
-					filename: `${type}_report.xlsx`
-				});
-			}
+			// await ctx.reply("✅ Анализ завершён. Формирую отчеты...");
+
+			// // Отправка файлов пользователю
+			// for (const [type, filepath] of Object.entries(files)) {
+			// 	await ctx.replyWithDocument({
+			// 		source: filepath,
+			// 		filename: `${type}_report.xlsx`
+			// 	});
+			// }
 
 			// Очистка временных файлов
 			setTimeout(() => cleanupTempDir(tempDir), 30000);
@@ -332,8 +346,8 @@ export class JSONProcessor {
 		return problems;
 	}
 
-
-	private generateReports(
+	// ======================= Генерация Excel =======================
+	generateExcelReports(
 		dir: string,
 		diagnostics: Diagnostic[],
 		unreachable: Array<{ screen: string; name?: string }>,
@@ -453,6 +467,52 @@ export class JSONProcessor {
 			console.error("❌ Ошибка генерации отчетов:", error);
 			throw error;
 		}
+
+		return files as ReportFiles;
+	}
+
+	// ======================= Генерация PDF =======================
+	generatePDFReports(
+		dir: string,
+		diagnostics: Diagnostic[],
+		unreachable: Array<{ screen: string; name?: string }>
+	): ReportFiles {
+		const files: Partial<ReportFiles> = {};
+		const pdfPath = path.join(dir, "report.pdf");
+
+		const doc = new PDFDocument();
+		doc.pipe(fs.createWriteStream(pdfPath));
+
+		doc.fontSize(18).text("Диагностика экранов", { align: "center" });
+		doc.moveDown();
+
+		doc.fontSize(14).text("Сводка", { underline: true });
+		doc.fontSize(12).list([
+			`Всего экранов: ${Object.keys(this.screens).length}`,
+			`Проанализировано путей: ${this.paths.length}`,
+			`Недостижимых экранов: ${unreachable.length}`,
+			`Экраны с циклами: ${this.paths.filter((p) => p.status === "CYCLE").length}`,
+			`Терминальные экраны: ${this.paths.filter((p) => p.status === "TERMINAL").length}`
+		]);
+		doc.moveDown();
+
+		if (unreachable.length > 0) {
+			doc.fontSize(14).text("Недостижимые экраны", { underline: true });
+			unreachable.forEach((u) => {
+				doc.fontSize(12).text(`• ${u.screen} (${u.name || "Нет названия"})`);
+			});
+			doc.moveDown();
+		}
+
+		doc.fontSize(14).text("Диагностика экранов", { underline: true });
+		diagnostics.forEach((d) => {
+			doc.fontSize(10).text(
+				`ID: ${d.screen}, Название: ${d.name || "—"}, Терминальный: ${d.terminal ? "Да" : "Нет"}, Правила: ${d.has_rules ? "Да" : "Нет"}, Исходящие связи: ${d.out_degree}`
+			);
+		});
+
+		doc.end();
+		files.summary = pdfPath;
 
 		return files as ReportFiles;
 	}
