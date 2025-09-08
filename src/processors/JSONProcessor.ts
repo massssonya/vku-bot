@@ -36,15 +36,17 @@ export class JSONProcessor {
 			this.analyzeStructure(json);
 
 			const diagnostics = this.generateDiagnostics();
+			let unreachable: Array<{ screen: string; name?: string }> = [];
+
 			const start = this.findStartScreen(json);
 
 			if (start) {
 				this.findPaths(start);
+				unreachable = this.findUnreachableScreens(start);
 			} else {
 				await ctx.reply("⚠️ Не удалось определить стартовый экран");
+				unreachable = this.findUnreachableScreens();
 			}
-
-			const unreachable = this.findUnreachableScreens();
 
 			// Проверка конфликтов условий
 			const conditionConflicts = this.checkDuplicateConditions(json);
@@ -147,30 +149,64 @@ export class JSONProcessor {
 	}
 
 	private findStartScreen(json: JSONStructure): string | null {
-		if (json.init) return json.init;
+		// Диагностика: сколько экранов в this.screens и примеры
+		console.log("DEBUG: this.screens count =", Object.keys(this.screens).length);
+		console.log("DEBUG: this.screens keys sample:", Object.keys(this.screens).slice(0, 10));
+		console.log("DEBUG: first few screens with isFirstScreen:",
+			Object.entries(this.screens)
+				.filter(([, s]) => !!s && ("isFirstScreen" in s))
+				.slice(0, 10)
+				.map(([id, s]) => ({ id, isFirstScreen: (s as any).isFirstScreen }))
+		);
 
-		for (const [id, scr] of Object.entries(this.screens)) {
-			if (scr.isFirstScreen) return id;
+		// 1) json.init (только если совпадает с имеющимися id)
+		if (json.init) {
+			if (this.screens[json.init]) {
+				console.log("DEBUG: using json.init ->", json.init);
+				return json.init;
+			} else {
+				console.warn("WARN: json.init present but not found in this.screens:", json.init);
+			}
 		}
 
-		// Попробуем найти любой экран без входящих связей
+		// 2) Поиск по this.screens: учитываем любые truthy значения (boolean/string/number)
+		for (const [id, scr] of Object.entries(this.screens)) {
+			if (scr && (scr as any).isFirstScreen) {
+				console.log("DEBUG: found isFirstScreen in this.screens ->", id);
+				return id;
+			}
+		}
+
+		// 3) Фallback — поиск напрямую в json.screens (на случай, если analyzeStructure не сработал)
+		if (Array.isArray(json.screens) && json.screens.length > 0) {
+			const direct = (json.screens || []).find((s) => s && s.isFirstScreen);
+			if (direct) {
+				console.log("DEBUG: found isFirstScreen directly in json.screens ->", direct.id);
+				return direct.id;
+			}
+		}
+
+		// 4) Fallback — экран без входящих связей
 		const allScreens = new Set(Object.keys(this.screens));
 		const hasIncoming = new Set<string>();
 
 		Object.values(this.edges).forEach((targets) => {
-			targets.filter(Boolean).forEach((target) => {
-				if (typeof target === "string") {
-					hasIncoming.add(target);
-				}
+			if (!Array.isArray(targets)) return;
+			targets.forEach((t) => {
+				if (t && typeof t === "string") hasIncoming.add(t);
 			});
 		});
 
-		const potentialStarts = Array.from(allScreens).filter(
-			(screen) => !hasIncoming.has(screen)
-		);
+		const potentialStarts = Array.from(allScreens).filter((s) => !hasIncoming.has(s));
+		if (potentialStarts.length > 0) {
+			console.log("DEBUG: using potential start (no incoming) ->", potentialStarts[0], "candidates:", potentialStarts.slice(0, 5));
+			return potentialStarts[0];
+		}
 
-		return potentialStarts.length > 0 ? potentialStarts[0] : null;
+		console.warn("WARN: start screen not found by any method");
+		return null;
 	}
+
 
 	private findPaths(start: string): void {
 		const dfs = (cur: string, path: string[]): void => {
@@ -204,13 +240,26 @@ export class JSONProcessor {
 		dfs(start, []);
 	}
 
-	private findUnreachableScreens(): Array<{ screen: string; name?: string }> {
+	private findUnreachableScreens(start?: string): Array<{ screen: string; name?: string }> {
 		const reachable = new Set<string>();
 
-		this.paths.forEach((p) => {
-			p.path.forEach((s) => reachable.add(s));
-		});
+		// Если есть стартовый экран — обходим граф от него
+		if (start) {
+			const dfs = (cur: string) => {
+				if (reachable.has(cur)) return;
+				reachable.add(cur);
 
+				const nexts = this.edges[cur] || [];
+				nexts.forEach((n) => {
+					if (n) dfs(n);
+				});
+			};
+			dfs(start);
+		} else {
+			console.warn("⚠️ Стартовый экран не найден. Все экраны считаются недостижимыми.");
+		}
+
+		// Всё, что не попало в reachable → недостижимое
 		return Object.keys(this.screens)
 			.filter((id) => !reachable.has(id))
 			.map((id) => ({
@@ -218,6 +267,7 @@ export class JSONProcessor {
 				name: this.screens[id]?.name
 			}));
 	}
+
 
 	// 🔍 Проверка на конфликты условий
 	private checkDuplicateConditions(json: JSONStructure) {
@@ -501,10 +551,10 @@ export class JSONProcessor {
 			doc.fontSize(18).font('bold').text("Диагностика экранов", { align: "center" });
 			doc.moveDown();
 
-			
+
 
 			doc.fontSize(14).font('bold').text("Сводка", { underline: true });
-			
+
 			doc.font('regular');
 			doc.fontSize(12).list([
 				`Всего экранов: ${Object.keys(this.screens).length}`,
