@@ -1,8 +1,8 @@
 import { DocumentContext } from "../types/index.js";
-import { JSONProcessorObj as JSONProcessor } from "../processors/JSONProcessor.js";
+import { JSONProcessor } from "../processors/JSONProcessor.js";
 
 export class DocumentHandler {
-	async handleDocument(ctx: DocumentContext): Promise<void> {
+	async handleDocument(ctx: DocumentContext, processor:JSONProcessor): Promise<void> {
 
 		try {
 			const file = ctx.message.document;
@@ -24,7 +24,7 @@ export class DocumentHandler {
 			}
 
 			// Обработка JSON файла
-			await JSONProcessor.processJSON(ctx, file.file_id);
+			await processor.processJSON(ctx, file.file_id);
 		} catch (error) {
 			console.error("❌ Ошибка обработки документа:", error);
 			await ctx.reply(

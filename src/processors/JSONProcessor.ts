@@ -61,6 +61,7 @@ export class JSONProcessor {
 				json,
 				diagnostics,
 				unreachable,
+				paths: this.paths,
 				tempDir
 			});
 
@@ -136,16 +137,6 @@ export class JSONProcessor {
 	}
 
 	private findStartScreen(json: JSONStructure): string | null {
-		// Диагностика: сколько экранов в this.screens и примеры
-		console.log("DEBUG: this.screens count =", Object.keys(this.screens).length);
-		console.log("DEBUG: this.screens keys sample:", Object.keys(this.screens).slice(0, 10));
-		console.log("DEBUG: first few screens with isFirstScreen:",
-			Object.entries(this.screens)
-				.filter(([, s]) => !!s && ("isFirstScreen" in s))
-				.slice(0, 10)
-				.map(([id, s]) => ({ id, isFirstScreen: (s as any).isFirstScreen }))
-		);
-
 		// 1) json.init (только если совпадает с имеющимися id)
 		if (json.init) {
 			if (this.screens[json.init]) {
@@ -305,35 +296,6 @@ export class JSONProcessor {
 		return problems;
 	}
 
-	// private normalizeCondition(c: any): string {
-	// 	if (c.protectedField) {
-	// 		// Сложное условие
-	// 		return JSON.stringify({
-	// 			field: c.protectedField,
-	// 			predicate: c.predicate,
-	// 			value: c.value,
-	// 			args: c.args
-	// 		});
-	// 	} else {
-	// 		// Простое условие (всегда равенство)
-	// 		return JSON.stringify({
-	// 			field: c.field,
-	// 			predicate: "equals",
-	// 			value: c.value
-	// 		});
-	// 	}
-	// }
-
-	// private normalizeConditionsArray(conds: any[]): string[] {
-	// 	return conds.map(c => this.normalizeCondition(c)).sort();
-	// }
-
-	// private isSubset(condsA: any[], condsB: any[]): boolean {
-	// 	const normA = this.normalizeConditionsArray(condsA);
-	// 	const normB = this.normalizeConditionsArray(condsB);
-	// 	return normA.every(c => normB.includes(c));
-	// }
-
 	private conditionsCanOverlap(condsA: any[], condsB: any[]): boolean {
 		// Пустые условия игнорируем
 		if (!condsA.length || !condsB.length) return false;
@@ -415,7 +377,8 @@ export class JSONProcessor {
 		dir: string,
 		diagnostics: Diagnostic[],
 		unreachable: Array<{ screen: string; name?: string }>,
-		json: JSONStructure
+		json: JSONStructure,
+		paths: PathResult[]
 	): ReportFiles {
 		const files: Partial<ReportFiles> = {};
 
@@ -438,7 +401,7 @@ export class JSONProcessor {
 			XLSX.writeFile(wb1, files.diagnostics);
 
 			// Пути
-			const pathData = this.paths.map((p, index) => ({
+			const pathData = paths.map((p, index) => ({
 				"№": index + 1,
 				Длина: p.path.length,
 				Статус:
@@ -477,10 +440,10 @@ export class JSONProcessor {
 			const summaryData = [
 				{
 					"Всего экранов": Object.keys(this.screens).length,
-					"Проанализировано путей": this.paths.length,
+					"Проанализировано путей": paths.length,
 					"Недостижимых экранов": unreachable.length,
-					"Экраны с циклами": this.paths.filter((p) => p.status === "CYCLE").length,
-					"Терминальные экраны": this.paths.filter((p) => p.status === "TERMINAL").length
+					"Экраны с циклами": paths.filter((p) => p.status === "CYCLE").length,
+					"Терминальные экраны": paths.filter((p) => p.status === "TERMINAL").length
 				}
 			];
 
@@ -540,7 +503,8 @@ export class JSONProcessor {
 	generatePDFReports(
 		dir: string,
 		diagnostics: Diagnostic[],
-		unreachable: Array<{ screen: string; name?: string }>
+		unreachable: Array<{ screen: string; name?: string }>,
+		paths: PathResult[]
 	): Promise<ReportFiles> {
 		return new Promise((resolve, reject) => {
 			const files: Partial<ReportFiles> = {};
@@ -566,10 +530,10 @@ export class JSONProcessor {
 			doc.font('regular');
 			doc.fontSize(12).list([
 				`Всего экранов: ${Object.keys(this.screens).length}`,
-				`Проанализировано путей: ${this.paths.length}`,
+				`Проанализировано путей: ${paths.length}`,
 				`Недостижимых экранов: ${unreachable.length}`,
-				`Экраны с циклами: ${this.paths.filter((p) => p.status === "CYCLE").length}`,
-				`Терминальные экраны: ${this.paths.filter((p) => p.status === "TERMINAL").length}`
+				`Экраны с циклами: ${paths.filter((p) => p.status === "CYCLE").length}`,
+				`Терминальные экраны: ${paths.filter((p) => p.status === "TERMINAL").length}`
 			]);
 			doc.moveDown();
 
@@ -602,5 +566,3 @@ export class JSONProcessor {
 		)
 	}
 }
-
-export const JSONProcessorObj = new JSONProcessor();

@@ -4,7 +4,7 @@ import fs from "fs";
 import { documentHandler } from './handlers/documentHandler';
 import { errorHandler } from './handlers/errorHandler';
 import { messageHandler } from './handlers/messageHandler';
-import { JSONProcessorObj } from './processors/JSONProcessor';
+import { JSONProcessor } from './processors/JSONProcessor';
 import { cleanupTempDir, createTempDir } from './utils/temp-utils';
 import { CallbackQuery } from 'telegraf/types';
 import { CustomContext } from './types/telegraf';
@@ -34,8 +34,10 @@ bot.command("jsonlogic", async (ctx) => {
     await ctx.reply("Пришлите ваше условие для преобразования в JsonLogic");
 })
 
-bot.on(message('document'), (ctx) => documentHandler.handleDocument(ctx));
-bot.on(message('text'), (ctx) => messageHandler.handleText(ctx));
+bot.on(message('document'), (ctx) => {
+    const processor = new JSONProcessor();
+    documentHandler.handleDocument(ctx, processor);
+});
 
 bot.on("callback_query", async (ctx) => {
     const callbackQuery = ctx.callbackQuery as CallbackQuery.DataQuery;
@@ -44,18 +46,19 @@ bot.on("callback_query", async (ctx) => {
     const sessionId = data.split('_').pop()!;
     const sessionData = SessionStorage.getBySessionId(sessionId);
 
-
-
     if (!sessionData) {
         return ctx.answerCbQuery("⚠️ Сессия устарела, загрузите JSON заново.");
     }
 
-    const { json, diagnostics, unreachable, tempDir } = sessionData;
+    const { json, diagnostics, unreachable, tempDir, paths } = sessionData;
 
-    if (!diagnostics || !unreachable || !json) return;
+    if (!diagnostics || !unreachable || !json || !paths) return;
+
+    const processor = new JSONProcessor();
 
     if (data === `report_excel_${sessionId}`) {
-        const files = JSONProcessorObj.generateExcelReports(tempDir, diagnostics, unreachable, json);
+        
+        const files = processor.generateExcelReports(tempDir, diagnostics, unreachable, json, paths);
         for (const [type, filepath] of Object.entries(files)) {
             await ctx.replyWithDocument({ source: filepath, filename: `${type}.xlsx` });
         }
@@ -65,7 +68,7 @@ bot.on("callback_query", async (ctx) => {
 
     if (data === `report_pdf_${sessionId}`) {
         try {
-            const files = await JSONProcessorObj.generatePDFReports(tempDir, diagnostics, unreachable);
+            const files = await processor.generatePDFReports(tempDir, diagnostics, unreachable, paths);
             if (fs.existsSync(files.summary)) {
                 await ctx.replyWithDocument({
                     source: files.summary,
@@ -84,6 +87,10 @@ bot.on("callback_query", async (ctx) => {
 
     await ctx.answerCbQuery();
 });
+
+bot.on(message('text'), (ctx) => messageHandler.handleText(ctx));
+
+
 
 
 // Обработчик ошибок
