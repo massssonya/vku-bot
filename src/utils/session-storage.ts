@@ -10,15 +10,21 @@ class SessionStorage {
         const sessionId = randomUUID();
         const sessionData: SessionData = { ...data, sessionId };
         this.storage.set(sessionId, sessionData);
-        
+
         // Автоочистка через 30 минут
         setTimeout(() => this.delete(sessionId), 30 * 60 * 1000);
-        
+
         return sessionId;
     }
 
-    static get(sessionId: string): SessionData | undefined {
+    static getBySessionId(sessionId: string): SessionData | undefined {
         return this.storage.get(sessionId);
+    }
+
+    static getByChatId(chatId: number): SessionData | undefined {
+        for (const session of this.storage.values()) {
+            if (session.chatId === chatId) return session;
+        }
     }
 
     static delete(sessionId: string): void {

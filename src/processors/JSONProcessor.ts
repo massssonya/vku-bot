@@ -57,6 +57,7 @@ export class JSONProcessor {
 			// Генерация отчетов
 			const tempDir = createTempDir();
 			const sessionId = SessionStorage.create({
+				chatId: ctx.chat?.id!,
 				json,
 				diagnostics,
 				unreachable,
@@ -71,20 +72,6 @@ export class JSONProcessor {
 					]
 				}
 			})
-			// const files = this.generateReports(tempDir, diagnostics, unreachable, json);
-
-			// await ctx.reply("✅ Анализ завершён. Формирую отчеты...");
-
-			// // Отправка файлов пользователю
-			// for (const [type, filepath] of Object.entries(files)) {
-			// 	await ctx.replyWithDocument({
-			// 		source: filepath,
-			// 		filename: `${type}_report.xlsx`
-			// 	});
-			// }
-
-			// Очистка временных файлов
-			// setTimeout(() => cleanupTempDir(tempDir), 30000);
 		} catch (err) {
 			console.error("❌ Ошибка обработки JSON:", err);
 			throw new Error(
@@ -318,89 +305,110 @@ export class JSONProcessor {
 		return problems;
 	}
 
-	private normalizeCondition(c: any): string {
-		if (c.protectedField) {
-			// Сложное условие
-			return JSON.stringify({
-				field: c.protectedField,
-				predicate: c.predicate,
-				value: c.value,
-				args: c.args
-			});
-		} else {
-			// Простое условие (всегда равенство)
-			return JSON.stringify({
-				field: c.field,
-				predicate: "equals",
-				value: c.value
-			});
-		}
-	}
+	// private normalizeCondition(c: any): string {
+	// 	if (c.protectedField) {
+	// 		// Сложное условие
+	// 		return JSON.stringify({
+	// 			field: c.protectedField,
+	// 			predicate: c.predicate,
+	// 			value: c.value,
+	// 			args: c.args
+	// 		});
+	// 	} else {
+	// 		// Простое условие (всегда равенство)
+	// 		return JSON.stringify({
+	// 			field: c.field,
+	// 			predicate: "equals",
+	// 			value: c.value
+	// 		});
+	// 	}
+	// }
 
-	private normalizeConditionsArray(conds: any[]): string[] {
-		return conds.map(c => this.normalizeCondition(c)).sort();
-	}
+	// private normalizeConditionsArray(conds: any[]): string[] {
+	// 	return conds.map(c => this.normalizeCondition(c)).sort();
+	// }
 
-	private isSubset(condsA: any[], condsB: any[]): boolean {
-		const normA = this.normalizeConditionsArray(condsA);
-		const normB = this.normalizeConditionsArray(condsB);
-		return normA.every(c => normB.includes(c));
-	}
+	// private isSubset(condsA: any[], condsB: any[]): boolean {
+	// 	const normA = this.normalizeConditionsArray(condsA);
+	// 	const normB = this.normalizeConditionsArray(condsB);
+	// 	return normA.every(c => normB.includes(c));
+	// }
 
-	private checkContradictoryConditions(json: JSONStructure) {
-		const problems: Array<{
-			screenId: string;
-			condsA: any[];
-			nextA: any;
-			condsB: any[];
-			nextB: any;
-			reason: string;
-		}> = [];
-
-		const checkRulesBlock = (rulesBlock: Record<string, any> | undefined) => {
-			if (!rulesBlock) return;
-
-			for (const [screenId, rules] of Object.entries(rulesBlock)) {
-				if (!Array.isArray(rules)) continue;
-
-				for (let i = 0; i < rules.length; i++) {
-					for (let j = i + 1; j < rules.length; j++) {
-						const r1 = rules[i];
-						const r2 = rules[j];
-
-						const conds1 = r1.conditions ?? [];
-						const conds2 = r2.conditions ?? [];
-
-						const norm1 = this.normalizeConditionsArray(conds1);
-						const norm2 = this.normalizeConditionsArray(conds2);
-
-						const sameConditions = JSON.stringify(norm1) === JSON.stringify(norm2);
-						const subset1 = this.isSubset(conds1, conds2);
-						const subset2 = this.isSubset(conds2, conds1);
-
-						if ((sameConditions || subset1 || subset2) &&
-							JSON.stringify(r1.nextDisplay) !== JSON.stringify(r2.nextDisplay)) {
-							problems.push({
-								screenId,
-								condsA: conds1,
-								nextA: r1.nextDisplay,
-								condsB: conds2,
-								nextB: r2.nextDisplay,
-								reason: sameConditions
-									? "Одинаковые условия ведут к разным экранам"
-									: "Вложенные условия ведут к разным экранам"
-							});
-						}
-					}
+	private conditionsCanOverlap(condsA: any[], condsB: any[]): boolean {
+		// Пустые условия игнорируем
+		if (!condsA.length || !condsB.length) return false;
+	  
+		for (const a of condsA) {
+		  for (const b of condsB) {
+			// Если оба условия касаются одного и того же поля
+			const fieldA = a.field || a.protectedField;
+			const fieldB = b.field || b.protectedField;
+	  
+			if (fieldA && fieldB && fieldA === fieldB) {
+			  // Простое сравнение значений
+			  if (a.predicate === null && b.predicate === null) {
+				if (a.value !== b.value) {
+				  // значения разные → условия взаимоисключающие
+				  return false;
 				}
+			  }
+			  // Для предикатов типа notEquals / greaterThan и т.д.
+			  // считаем, что потенциально могут пересекаться
 			}
+		  }
+		}
+	  
+		// Если разные поля → могут выполняться одновременно
+		return true;
+	  }
+	  
+	  private checkContradictoryConditions(json: JSONStructure) {
+		const problems: Array<{
+		  screenId: string;
+		  condsA: any[];
+		  nextA: any;
+		  condsB: any[];
+		  nextB: any;
+		  reason: string;
+		}> = [];
+	  
+		const checkRulesBlock = (rulesBlock: Record<string, any> | undefined) => {
+		  if (!rulesBlock) return;
+	  
+		  for (const [screenId, rules] of Object.entries(rulesBlock)) {
+			if (!Array.isArray(rules)) continue;
+	  
+			for (let i = 0; i < rules.length; i++) {
+			  for (let j = i + 1; j < rules.length; j++) {
+				const r1 = rules[i];
+				const r2 = rules[j];
+	  
+				const conds1 = r1.conditions ?? [];
+				const conds2 = r2.conditions ?? [];
+	  
+				// Проверяем, могут ли условия выполняться одновременно
+				if (this.conditionsCanOverlap(conds1, conds2)) {
+				  if (JSON.stringify(r1.nextDisplay) !== JSON.stringify(r2.nextDisplay)) {
+					problems.push({
+					  screenId,
+					  condsA: conds1,
+					  nextA: r1.nextDisplay,
+					  condsB: conds2,
+					  nextB: r2.nextDisplay,
+					  reason: "Разные переходы при одновременном выполнении условий"
+					});
+				  }
+				}
+			  }
+			}
+		  }
 		};
-
+	  
 		checkRulesBlock(json.screenRules);
 		checkRulesBlock(json.cycledScreenRules);
-
+	  
 		return problems;
-	}
+	  }
 
 	// ======================= Генерация Excel =======================
 	generateExcelReports(

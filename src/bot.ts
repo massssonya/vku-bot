@@ -5,7 +5,7 @@ import { documentHandler } from './handlers/documentHandler';
 import { errorHandler } from './handlers/errorHandler';
 import { messageHandler } from './handlers/messageHandler';
 import { JSONProcessorObj } from './processors/JSONProcessor';
-import { cleanupTempDir } from './utils/temp-utils';
+import { cleanupTempDir, createTempDir } from './utils/temp-utils';
 import { CallbackQuery } from 'telegraf/types';
 import { CustomContext } from './types/telegraf';
 import SessionStorage from './utils/session-storage';
@@ -17,6 +17,22 @@ const bot = new Telegraf<CustomContext>(process.env.TELEGRAM_BOT_TOKEN || '');
 bot.start(messageHandler.handleStart);
 bot.help(messageHandler.handleHelp);
 
+bot.command("jsonlogic", async (ctx) => {
+    const chatId = ctx.chat.id;
+
+    let session = SessionStorage.getByChatId(chatId);
+    if (!session) {
+        let sessionId = SessionStorage.create({
+            chatId,
+            tempDir: createTempDir(),
+            awaitingJsonLogic: false
+        })
+        session = SessionStorage.getBySessionId(sessionId)
+    }
+    if (session) session.awaitingJsonLogic = true;
+
+    await ctx.reply("Пришлите ваше условие для преобразования в JsonLogic");
+})
 
 bot.on(message('document'), (ctx) => documentHandler.handleDocument(ctx));
 bot.on(message('text'), (ctx) => messageHandler.handleText(ctx));
@@ -26,7 +42,7 @@ bot.on("callback_query", async (ctx) => {
     const data = callbackQuery.data;
 
     const sessionId = data.split('_').pop()!;
-    const sessionData = SessionStorage.get(sessionId);
+    const sessionData = SessionStorage.getBySessionId(sessionId);
 
 
 
@@ -35,6 +51,8 @@ bot.on("callback_query", async (ctx) => {
     }
 
     const { json, diagnostics, unreachable, tempDir } = sessionData;
+
+    if (!diagnostics || !unreachable || !json) return;
 
     if (data === `report_excel_${sessionId}`) {
         const files = JSONProcessorObj.generateExcelReports(tempDir, diagnostics, unreachable, json);
