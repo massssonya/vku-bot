@@ -68,33 +68,29 @@ class JsonLogicConverter {
     if (!str) {
       throw new Error("Пустое выражение условия");
     }
-
+  
     let res = str.replace(/[()]/g, "");
-    let curOperator: Operator = null;
-
-    for (const operator of this.OPERATORS) {
-      if (operator && res.includes(operator)) {
-        curOperator = operator;
-        break;
-      }
-    }
-
-    if (!curOperator) {
+  
+    const operatorRegex = /(>=|<=|==|!=|>|<)/;
+    const match = res.match(operatorRegex);
+    if (!match) {
       throw new Error(`Не найден оператор в выражении: ${str}`);
     }
-
-    const parts = res.split(curOperator);
+  
+    const curOperator = (match[0] ?? null) as Operator;
+    const parts = res.split(curOperator as string);
+  
     if (parts.length < 2) {
       throw new Error(`Неверный формат выражения: ${str}`);
     }
-
+  
     const attribute = parts[0]?.trim();
     const value = parts[1]?.trim();
-
+  
     if (!attribute || !value) {
       throw new Error(`Атрибут или значение пусты: ${str}`);
     }
-
+  
     return {
       operator: curOperator,
       attribute,
