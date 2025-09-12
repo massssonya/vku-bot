@@ -1,8 +1,10 @@
-import { DocumentContext } from "../types/index.js";
+import { DocumentContext } from "../types/json-processor.types.js";
 import { JSONProcessor } from "../processors/JSONProcessor.js";
+import { createTempDir } from "../utils/temp-utils.js";
+import SessionStorage from "../utils/session-storage.js";
 
 export class DocumentHandler {
-	async handleDocument(ctx: DocumentContext, processor:JSONProcessor): Promise<void> {
+	async handleDocument(ctx: DocumentContext, processor: JSONProcessor): Promise<void> {
 
 		try {
 			const file = ctx.message.document;
@@ -23,8 +25,33 @@ export class DocumentHandler {
 				return;
 			}
 
+			const fileLink = await ctx.telegram.getFileLink(file.file_id);
+			const res = await fetch(fileLink.href);
+			const json = await res.json();
+
+			await ctx.reply("📊 Получен JSON. Начинаю анализ...");
+
 			// Обработка JSON файла
-			await processor.processJSON(ctx, file.file_id);
+			const result = await processor.analyze(json);
+
+			const tempDir = createTempDir();
+			const sessionId = SessionStorage.create({
+				chatId: ctx.chat.id,
+				analysisResult: result,
+				tempDir,
+				json
+			});
+			await ctx.reply("📑 В каком формате сформировать отчёты?",
+				{
+					reply_markup: {
+						inline_keyboard: [
+							[{ text: "📊 Excel", callback_data: `report_excel_${sessionId}` }],
+							[{ text: "📄 PDF", callback_data: `report_pdf_${sessionId}` }],
+						],
+					},
+				}
+			)
+
 		} catch (error) {
 			console.error("❌ Ошибка обработки документа:", error);
 			await ctx.reply(

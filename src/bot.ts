@@ -9,6 +9,7 @@ import { cleanupTempDir, createTempDir } from './utils/temp-utils';
 import { CallbackQuery } from 'telegraf/types';
 import { CustomContext } from './types/telegraf';
 import SessionStorage from './utils/session-storage';
+import { AnalysisResult } from './types/json-processor.types';
 
 
 const bot = new Telegraf<CustomContext>(process.env.TELEGRAM_BOT_TOKEN || '');
@@ -50,15 +51,16 @@ bot.on("callback_query", async (ctx) => {
         return ctx.answerCbQuery("⚠️ Сессия устарела, загрузите JSON заново.");
     }
 
-    const { json, diagnostics, unreachable, tempDir, paths } = sessionData;
+    const { analysisResult, tempDir, json } = sessionData;
 
-    if (!diagnostics || !unreachable || !json || !paths) return;
+    if (!analysisResult || !json) return;
 
     const processor = new JSONProcessor();
 
     if (data === `report_excel_${sessionId}`) {
         
-        const files = processor.generateExcelReports(tempDir, diagnostics, unreachable, json, paths);
+        const files = processor.generateExcel(analysisResult, json, tempDir);
+
         for (const [type, filepath] of Object.entries(files)) {
             await ctx.replyWithDocument({ source: filepath, filename: `${type}.xlsx` });
         }
@@ -68,7 +70,7 @@ bot.on("callback_query", async (ctx) => {
 
     if (data === `report_pdf_${sessionId}`) {
         try {
-            const files = await processor.generatePDFReports(tempDir, diagnostics, unreachable, paths);
+            const files = await processor.generatePDF(analysisResult, tempDir);
             if (fs.existsSync(files.summary)) {
                 await ctx.replyWithDocument({
                     source: files.summary,
@@ -89,9 +91,6 @@ bot.on("callback_query", async (ctx) => {
 });
 
 bot.on(message('text'), (ctx) => messageHandler.handleText(ctx));
-
-
-
 
 // Обработчик ошибок
 bot.catch(errorHandler.handleBotError);

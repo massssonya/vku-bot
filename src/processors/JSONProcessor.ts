@@ -1,568 +1,110 @@
-import path from "path";
-import fs from "fs";
-import PDFDocument from "pdfkit";
 import {
-	Diagnostic,
+	AnalysisResult,
 	JSONStructure,
-	PathResult,
-	ReportFiles,
-	Screen
-} from "../types/index.js";
-import { createTempDir } from "../utils/temp-utils.js";
+} from "../types/json-processor.types.js";
 
-import XLSX from "xlsx";
-import { CustomContext } from "../types/telegraf.js";
-import SessionStorage from "../utils/session-storage.js";
+import { Analyzer } from "./analysis/Analyzer.js";
+import { ScreenGraphBuilder } from "./graph/ScreenGraphBuilder.js";
+import { PathFinder } from "./graph/PathFinder.js";
+import { ConditionValidator } from "./conditions/ConditionValidator.js";
+import { ExcelReportGenerator } from "./reporting/ExcelReportGenerator.js";
+import { PDFReportGenerator } from "./reporting/PDFReportGenerator.js";
 
-const FONTS_PATH = path.join(process.cwd(), 'assets', 'fonts');
+
 
 export class JSONProcessor {
-	private screens: Record<string, Screen> = {};
-	private edges: Record<string, (string | null)[]> = {};
-	private paths: PathResult[] = [];
-	private readonly MAX_PATHS = 10000;
+	private graphBuilder = new ScreenGraphBuilder()
+	private pathFinder = new PathFinder()
+	private analyzer = new Analyzer()
+	private conditionValidator = new ConditionValidator()
+	private excelGen = new ExcelReportGenerator()
+	private pdfGen = new PDFReportGenerator()
 
-	async processJSON(ctx: CustomContext, fileId: string): Promise<void> {
-		try {
-			await ctx.reply("📊 Получен JSON. Начинаю анализ...");
+	analyze(json: JSONStructure):AnalysisResult {
+		const {edges, screens} = this.graphBuilder.build(json)
+		const start = this.graphBuilder.findStart(json, screens, edges)
+		const paths = start ? this.pathFinder.findPaths(start, edges, screens):[]
+		const diagnostics = this.analyzer.generateDiagnostics(screens, edges)
+		const unreachable = this.analyzer.findUnreachableScreens(screens, edges, start)
+		const conflicts = this.conditionValidator.checkDuplicateConditions(json)
+		const contradictions = this.conditionValidator.checkContradictoryConditions(json)
 
-			// Загружаем файл
-			const fileLink = await ctx.telegram.getFileLink(fileId);
-			const res = await fetch(fileLink.href);
-			const text = await res.text();
-			const json: JSONStructure = JSON.parse(text);
-
-			// Анализ структуры
-			this.analyzeStructure(json);
-
-			const diagnostics = this.generateDiagnostics();
-			let unreachable: Array<{ screen: string; name?: string }> = [];
-
-			const start = this.findStartScreen(json);
-
-			if (start) {
-				this.findPaths(start);
-				unreachable = this.findUnreachableScreens(start);
-			} else {
-				await ctx.reply("⚠️ Не удалось определить стартовый экран");
-				unreachable = this.findUnreachableScreens();
-			}
-
-			// Проверка конфликтов условий
-			const conditionConflicts = this.checkDuplicateConditions(json);
-			if (conditionConflicts.length > 0) {
-				await ctx.reply(`⚠️ Найдены конфликты условий (${conditionConflicts.length})`);
-			}
-
-			// Генерация отчетов
-			const tempDir = createTempDir();
-			const sessionId = SessionStorage.create({
-				chatId: ctx.chat?.id!,
-				json,
-				diagnostics,
-				unreachable,
-				paths: this.paths,
-				tempDir
-			});
-
-			await ctx.reply("📑 В каком формате сформировать отчёты?", {
-				reply_markup: {
-					inline_keyboard: [
-						[{ text: "📊 Excel", callback_data: `report_excel_${sessionId}` }],
-						[{ text: "📄 PDF", callback_data: `report_pdf_${sessionId}` }]
-					]
-				}
-			})
-		} catch (err) {
-			console.error("❌ Ошибка обработки JSON:", err);
-			throw new Error(
-				`Ошибка при обработке JSON: ${err instanceof Error ? err.message : "Unknown error"}`
-			);
-		}
+		return { diagnostics, paths, unreachable, conflicts, contradictions, edges, screens };
 	}
 
-	private analyzeStructure(json: JSONStructure): void {
-		this.screens = {};
-		(json.screens || []).forEach((s: Screen) => {
-			this.screens[s.id] = s;
-		});
-
-		this.edges = {};
-
-		const collectEdges = (
-			rulesBlock: Record<string, any> | undefined
-		): void => {
-			if (!rulesBlock) return;
-
-			for (const [screenId, rules] of Object.entries(rulesBlock)) {
-				this.edges[screenId] = this.edges[screenId] || [];
-				if (!Array.isArray(rules)) continue;
-
-				for (const rule of rules) {
-					let nexts: string[] = [];
-					if (Array.isArray(rule.nextDisplay)) {
-						nexts = rule.nextDisplay;
-					} else if (typeof rule.nextDisplay === "string") {
-						nexts = [rule.nextDisplay];
-					}
-
-					if (nexts.length === 0) {
-						this.edges[screenId].push(null);
-					} else {
-						for (const n of nexts) {
-							this.edges[screenId].push(n);
-						}
-					}
-				}
-			}
-		};
-
-		collectEdges(json.screenRules);
-		collectEdges(json.cycledScreenRules);
+	generateExcel(result:AnalysisResult, json:JSONStructure, dir: string){
+		return this.excelGen.generateReports(result, json, dir)
 	}
 
-	private generateDiagnostics(): Diagnostic[] {
-		return Object.entries(this.screens).map(([id, scr]) => {
-			const rules = this.edges[id] || [];
-			const terminal = !!scr.isTerminal;
-
-			return {
-				screen: id,
-				name: scr.name,
-				terminal,
-				has_rules: rules.length > 0,
-				out_degree: rules.filter(Boolean).length
-			};
-		});
-	}
-
-	private findStartScreen(json: JSONStructure): string | null {
-		// 1) json.init (только если совпадает с имеющимися id)
-		if (json.init) {
-			if (this.screens[json.init]) {
-				console.log("DEBUG: using json.init ->", json.init);
-				return json.init;
-			} else {
-				console.warn("WARN: json.init present but not found in this.screens:", json.init);
-			}
-		}
-
-		// 2) Поиск по this.screens: учитываем любые truthy значения (boolean/string/number)
-		for (const [id, scr] of Object.entries(this.screens)) {
-			if (scr && (scr as any).isFirstScreen) {
-				console.log("DEBUG: found isFirstScreen in this.screens ->", id);
-				return id;
-			}
-		}
-
-		// 3) Фallback — поиск напрямую в json.screens (на случай, если analyzeStructure не сработал)
-		if (Array.isArray(json.screens) && json.screens.length > 0) {
-			const direct = (json.screens || []).find((s) => s && s.isFirstScreen);
-			if (direct) {
-				console.log("DEBUG: found isFirstScreen directly in json.screens ->", direct.id);
-				return direct.id;
-			}
-		}
-
-		// 4) Fallback — экран без входящих связей
-		const allScreens = new Set(Object.keys(this.screens));
-		const hasIncoming = new Set<string>();
-
-		Object.values(this.edges).forEach((targets) => {
-			if (!Array.isArray(targets)) return;
-			targets.forEach((t) => {
-				if (t && typeof t === "string") hasIncoming.add(t);
-			});
-		});
-
-		const potentialStarts = Array.from(allScreens).filter((s) => !hasIncoming.has(s));
-		if (potentialStarts.length > 0) {
-			console.log("DEBUG: using potential start (no incoming) ->", potentialStarts[0], "candidates:", potentialStarts.slice(0, 5));
-			return potentialStarts[0];
-		}
-
-		console.warn("WARN: start screen not found by any method");
-		return null;
-	}
-
-
-	private findPaths(start: string): void {
-		const dfs = (cur: string, path: string[]): void => {
-			if (this.paths.length >= this.MAX_PATHS) return;
-
-			if (path.includes(cur)) {
-				this.paths.push({
-					path: [...path, cur],
-					status: "CYCLE"
-				});
-				return;
-			}
-
-			const nexts = this.edges[cur] || [];
-
-			if (!nexts.length) {
-				const term = this.screens[cur]?.isTerminal;
-				this.paths.push({
-					path: [...path, cur],
-					status: term ? "TERMINAL" : "DEAD_END"
-				});
-				return;
-			}
-
-			for (const n of nexts) {
-				if (!n) continue;
-				dfs(n, [...path, cur]);
-			}
-		};
-
-		dfs(start, []);
-	}
-
-	private findUnreachableScreens(start?: string): Array<{ screen: string; name?: string }> {
-		const reachable = new Set<string>();
-
-		// Если есть стартовый экран — обходим граф от него
-		if (start) {
-			const dfs = (cur: string) => {
-				if (reachable.has(cur)) return;
-				reachable.add(cur);
-
-				const nexts = this.edges[cur] || [];
-				nexts.forEach((n) => {
-					if (n) dfs(n);
-				});
-			};
-			dfs(start);
-		} else {
-			console.warn("⚠️ Стартовый экран не найден. Все экраны считаются недостижимыми.");
-		}
-
-		// Всё, что не попало в reachable → недостижимое
-		return Object.keys(this.screens)
-			.filter((id) => !reachable.has(id))
-			.map((id) => ({
-				screen: id,
-				name: this.screens[id]?.name
-			}));
-	}
-
-
-	// 🔍 Проверка на конфликты условий
-	private checkDuplicateConditions(json: JSONStructure) {
-		const problems: Array<{
-			screenId: string;
-			condition: string;
-			nextDisplays: string[];
-		}> = [];
-
-		const checkRulesBlock = (rulesBlock: Record<string, any> | undefined) => {
-			if (!rulesBlock) return;
-
-			for (const [screenId, rules] of Object.entries(rulesBlock)) {
-				if (!Array.isArray(rules)) continue;
-
-				const conditionMap: Record<string, Set<string>> = {};
-
-				for (const rule of rules) {
-					const conds = JSON.stringify(rule.conditions ?? []);
-					const nexts = Array.isArray(rule.nextDisplay)
-						? rule.nextDisplay
-						: rule.nextDisplay
-							? [rule.nextDisplay]
-							: [];
-
-					if (!conditionMap[conds]) {
-						conditionMap[conds] = new Set();
-					}
-
-					nexts.forEach((n: string) => conditionMap[conds].add(n || "null"));
-				}
-
-				for (const [conds, nextSet] of Object.entries(conditionMap)) {
-					if (nextSet.size > 1) {
-						problems.push({
-							screenId,
-							condition: conds,
-							nextDisplays: Array.from(nextSet)
-						});
-					}
-				}
-			}
-		};
-
-		checkRulesBlock(json.screenRules);
-		checkRulesBlock(json.cycledScreenRules);
-
-		return problems;
-	}
-
-	private conditionsCanOverlap(condsA: any[], condsB: any[]): boolean {
-		// Пустые условия игнорируем
-		if (!condsA.length || !condsB.length) return false;
-	  
-		for (const a of condsA) {
-		  for (const b of condsB) {
-			// Если оба условия касаются одного и того же поля
-			const fieldA = a.field || a.protectedField;
-			const fieldB = b.field || b.protectedField;
-	  
-			if (fieldA && fieldB && fieldA === fieldB) {
-			  // Простое сравнение значений
-			  if (a.predicate === null && b.predicate === null) {
-				if (a.value !== b.value) {
-				  // значения разные → условия взаимоисключающие
-				  return false;
-				}
-			  }
-			  // Для предикатов типа notEquals / greaterThan и т.д.
-			  // считаем, что потенциально могут пересекаться
-			}
-		  }
-		}
-	  
-		// Если разные поля → могут выполняться одновременно
-		return true;
-	  }
-	  
-	  private checkContradictoryConditions(json: JSONStructure) {
-		const problems: Array<{
-		  screenId: string;
-		  condsA: any[];
-		  nextA: any;
-		  condsB: any[];
-		  nextB: any;
-		  reason: string;
-		}> = [];
-	  
-		const checkRulesBlock = (rulesBlock: Record<string, any> | undefined) => {
-		  if (!rulesBlock) return;
-	  
-		  for (const [screenId, rules] of Object.entries(rulesBlock)) {
-			if (!Array.isArray(rules)) continue;
-	  
-			for (let i = 0; i < rules.length; i++) {
-			  for (let j = i + 1; j < rules.length; j++) {
-				const r1 = rules[i];
-				const r2 = rules[j];
-	  
-				const conds1 = r1.conditions ?? [];
-				const conds2 = r2.conditions ?? [];
-	  
-				// Проверяем, могут ли условия выполняться одновременно
-				if (this.conditionsCanOverlap(conds1, conds2)) {
-				  if (JSON.stringify(r1.nextDisplay) !== JSON.stringify(r2.nextDisplay)) {
-					problems.push({
-					  screenId,
-					  condsA: conds1,
-					  nextA: r1.nextDisplay,
-					  condsB: conds2,
-					  nextB: r2.nextDisplay,
-					  reason: "Разные переходы при одновременном выполнении условий"
-					});
-				  }
-				}
-			  }
-			}
-		  }
-		};
-	  
-		checkRulesBlock(json.screenRules);
-		checkRulesBlock(json.cycledScreenRules);
-	  
-		return problems;
-	  }
-
-	// ======================= Генерация Excel =======================
-	generateExcelReports(
-		dir: string,
-		diagnostics: Diagnostic[],
-		unreachable: Array<{ screen: string; name?: string }>,
-		json: JSONStructure,
-		paths: PathResult[]
-	): ReportFiles {
-		const files: Partial<ReportFiles> = {};
-
-		try {
-			// Диагностика экранов
-			const ws1 = XLSX.utils.json_to_sheet(
-				diagnostics.map((d) => ({
-					"ID экрана": d.screen,
-					Название: d.name || "Нет названия",
-					Терминальный: d.terminal ? "Да" : "Нет",
-					"Есть правила": d.has_rules ? "Да" : "Нет",
-					"Исходящие связи": d.out_degree,
-					"Всего правил": this.edges[d.screen]?.length || 0
-				}))
-			);
-
-			const wb1 = XLSX.utils.book_new();
-			XLSX.utils.book_append_sheet(wb1, ws1, "Диагностика");
-			files.diagnostics = path.join(dir, "diagnostics.xlsx");
-			XLSX.writeFile(wb1, files.diagnostics);
-
-			// Пути
-			const pathData = paths.map((p, index) => ({
-				"№": index + 1,
-				Длина: p.path.length,
-				Статус:
-					p.status === "CYCLE"
-						? "ЦИКЛ"
-						: p.status === "TERMINAL"
-							? "ТЕРМИНАЛ"
-							: "ТУПИК",
-				Путь: p.path.join(" → "),
-				Экраны: p.path.length
-			}));
-
-			const ws2 = XLSX.utils.json_to_sheet(pathData);
-			const wb2 = XLSX.utils.book_new();
-			XLSX.utils.book_append_sheet(wb2, ws2, "Пути");
-			files.paths = path.join(dir, "paths.xlsx");
-			XLSX.writeFile(wb2, files.paths);
-
-			// Недостижимые экраны
-			if (unreachable.length > 0) {
-				const ws3 = XLSX.utils.json_to_sheet(
-					unreachable.map((u) => ({
-						"ID экрана": u.screen,
-						Название: u.name || "Нет названия",
-						Тип: this.screens[u.screen]?.isTerminal ? "Терминальный" : "Обычный"
-					}))
-				);
-
-				const wb3 = XLSX.utils.book_new();
-				XLSX.utils.book_append_sheet(wb3, ws3, "Недостижимые");
-				files.unreachable = path.join(dir, "unreachable.xlsx");
-				XLSX.writeFile(wb3, files.unreachable!);
-			}
-
-			// Сводный отчет
-			const summaryData = [
-				{
-					"Всего экранов": Object.keys(this.screens).length,
-					"Проанализировано путей": paths.length,
-					"Недостижимых экранов": unreachable.length,
-					"Экраны с циклами": paths.filter((p) => p.status === "CYCLE").length,
-					"Терминальные экраны": paths.filter((p) => p.status === "TERMINAL").length
-				}
-			];
-
-			const ws4 = XLSX.utils.json_to_sheet(summaryData);
-			const wb4 = XLSX.utils.book_new();
-			XLSX.utils.book_append_sheet(wb4, ws4, "Сводка");
-			files.summary = path.join(dir, "summary.xlsx");
-			XLSX.writeFile(wb4, files.summary);
-
-			// Конфликты условий
-			const conditionConflicts = this.checkDuplicateConditions(json);
-			if (conditionConflicts.length > 0) {
-				const ws5 = XLSX.utils.json_to_sheet(
-					conditionConflicts.map((c) => ({
-						"ID экрана": c.screenId,
-						"Условия": c.condition,
-						"Переходы": c.nextDisplays.join(", ")
-					}))
-				);
-
-				const wb5 = XLSX.utils.book_new();
-				XLSX.utils.book_append_sheet(wb5, ws5, "Конфликты условий");
-				files.conflicts = path.join(dir, "conflicts.xlsx");
-				XLSX.writeFile(wb5, files.conflicts);
-			}
-
-			// Противоречивые условия
-			const contradictions = this.checkContradictoryConditions(json);
-			if (contradictions.length > 0) {
-				const ws6 = XLSX.utils.json_to_sheet(
-					contradictions.map((c) => ({
-						"ID экрана": c.screenId,
-						"Условия A": JSON.stringify(c.condsA),
-						"Переход A": JSON.stringify(c.nextA),
-						"Условия B": JSON.stringify(c.condsB),
-						"Переход B": JSON.stringify(c.nextB),
-						"Причина": c.reason
-					}))
-				);
-
-				const wb6 = XLSX.utils.book_new();
-				XLSX.utils.book_append_sheet(wb6, ws6, "Противоречия");
-				files.contradictions = path.join(dir, "contradictions.xlsx");
-				XLSX.writeFile(wb6, files.contradictions);
-			}
-
-		} catch (error) {
-			console.error("❌ Ошибка генерации отчетов:", error);
-			throw error;
-		}
-
-		return files as ReportFiles;
+	generatePDF(result:AnalysisResult, dir: string){
+		return this.pdfGen.generateReports(result, dir)
 	}
 
 	// ======================= Генерация PDF =======================
 
-	generatePDFReports(
-		dir: string,
-		diagnostics: Diagnostic[],
-		unreachable: Array<{ screen: string; name?: string }>,
-		paths: PathResult[]
-	): Promise<ReportFiles> {
-		return new Promise((resolve, reject) => {
-			const files: Partial<ReportFiles> = {};
-			const pdfPath = path.join(dir, "report.pdf");
+	// generatePDFReports(
+	// 	dir: string,
+	// 	diagnostics: Diagnostic[],
+	// 	unreachable: Array<{ screen: string; name?: string }>,
+	// 	paths: PathResult[]
+	// ): Promise<ReportFiles> {
+	// 	return new Promise((resolve, reject) => {
+	// 		const files: Partial<ReportFiles> = {};
+	// 		const pdfPath = path.join(dir, "report.pdf");
 
-			const doc = new PDFDocument();
-			const stream = fs.createWriteStream(pdfPath);
+	// 		const doc = new PDFDocument();
+	// 		const stream = fs.createWriteStream(pdfPath);
 
-			doc.pipe(stream);
+	// 		doc.pipe(stream);
 
-			doc.registerFont('regular', path.join(FONTS_PATH, 'Roboto-Regular.ttf'));
-			doc.registerFont('bold', path.join(FONTS_PATH, 'Roboto-Bold.ttf'));
+	// 		doc.registerFont('regular', path.join(FONTS_PATH, 'Roboto-Regular.ttf'));
+	// 		doc.registerFont('bold', path.join(FONTS_PATH, 'Roboto-Bold.ttf'));
 
-			doc.font('regular');
+	// 		doc.font('regular');
 
-			doc.fontSize(18).font('bold').text("Диагностика экранов", { align: "center" });
-			doc.moveDown();
+	// 		doc.fontSize(18).font('bold').text("Диагностика экранов", { align: "center" });
+	// 		doc.moveDown();
 
 
 
-			doc.fontSize(14).font('bold').text("Сводка", { underline: true });
+	// 		doc.fontSize(14).font('bold').text("Сводка", { underline: true });
 
-			doc.font('regular');
-			doc.fontSize(12).list([
-				`Всего экранов: ${Object.keys(this.screens).length}`,
-				`Проанализировано путей: ${paths.length}`,
-				`Недостижимых экранов: ${unreachable.length}`,
-				`Экраны с циклами: ${paths.filter((p) => p.status === "CYCLE").length}`,
-				`Терминальные экраны: ${paths.filter((p) => p.status === "TERMINAL").length}`
-			]);
-			doc.moveDown();
+	// 		doc.font('regular');
+	// 		doc.fontSize(12).list([
+	// 			`Всего экранов: ${Object.keys(this.screens).length}`,
+	// 			`Проанализировано путей: ${paths.length}`,
+	// 			`Недостижимых экранов: ${unreachable.length}`,
+	// 			`Экраны с циклами: ${paths.filter((p) => p.status === "CYCLE").length}`,
+	// 			`Терминальные экраны: ${paths.filter((p) => p.status === "TERMINAL").length}`
+	// 		]);
+	// 		doc.moveDown();
 
-			if (unreachable.length > 0) {
-				doc.fontSize(14).font('bold').text("Недостижимые экраны", { underline: true });
-				doc.font('regular');
-				unreachable.forEach((u) => {
-					doc.fontSize(12).text(`• ${u.screen} (${u.name || "Нет названия"})`);
-				});
-				doc.moveDown();
-			}
+	// 		if (unreachable.length > 0) {
+	// 			doc.fontSize(14).font('bold').text("Недостижимые экраны", { underline: true });
+	// 			doc.font('regular');
+	// 			unreachable.forEach((u) => {
+	// 				doc.fontSize(12).text(`• ${u.screen} (${u.name || "Нет названия"})`);
+	// 			});
+	// 			doc.moveDown();
+	// 		}
 
-			doc.fontSize(14).font('bold').text("Диагностика экранов", { underline: true });
-			doc.font('regular');
-			diagnostics.forEach((d) => {
-				doc.fontSize(10).text(
-					`ID: ${d.screen}, Название: ${d.name || "—"}, Терминальный: ${d.terminal ? "Да" : "Нет"}, Правила: ${d.has_rules ? "Да" : "Нет"}, Исходящие связи: ${d.out_degree}`
-				);
-			});
+	// 		doc.fontSize(14).font('bold').text("Диагностика экранов", { underline: true });
+	// 		doc.font('regular');
+	// 		diagnostics.forEach((d) => {
+	// 			doc.fontSize(10).text(
+	// 				`ID: ${d.screen}, Название: ${d.name || "—"}, Терминальный: ${d.terminal ? "Да" : "Нет"}, Правила: ${d.has_rules ? "Да" : "Нет"}, Исходящие связи: ${d.out_degree}`
+	// 			);
+	// 		});
 
-			stream.on('finish', () => {
-				files.summary = pdfPath;
-				resolve(files as ReportFiles);
-			});
+	// 		stream.on('finish', () => {
+	// 			files.summary = pdfPath;
+	// 			resolve(files as ReportFiles);
+	// 		});
 
-			stream.on('error', reject);
+	// 		stream.on('error', reject);
 
-			doc.end();
-		}
-		)
-	}
+	// 		doc.end();
+	// 	}
+	// 	)
+	// }
 }

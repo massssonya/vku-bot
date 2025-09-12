@@ -1,6 +1,16 @@
 import { Context, NarrowedContext } from 'telegraf';
 import { Message, Update } from 'telegraf/types';
 
+export interface AnalysisResult {
+	diagnostics: Diagnostic[];
+	paths: PathResult[];
+	unreachable: Array<{ screen: string; name?: string }>;
+	conflicts: any[];
+	contradictions: any[];
+	edges: Record<string, (string | null)[]>;
+	screens:Record<string, Screen>
+}
+
 export interface Screen {
   id: string;
   name?: string;
